@@ -19,7 +19,6 @@
             <artifactId>jfreechart</artifactId>
             <version>1.5.5</version>
         </dependency>
-        <!-- https://mvnrepository.com/artifact/org.ojalgo/ojalgo -->
         <dependency>
             <groupId>org.ojalgo</groupId>
             <artifactId>ojalgo</artifactId>
