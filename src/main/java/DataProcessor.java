@@ -1,95 +1,36 @@
 import java.io.*;
-import java.net.URL;
 import java.util.*;
+import org.ejml.simple.SimpleMatrix;
 
 public class DataProcessor {
-    private static final int numNuclides = 9; //3386
-    /*
-    DecayData Structure:
-    { // Holds all nuclides
-        { // Holds 3 individual nuclide decay modes for each nuclide
-            { // Individual nuclide decay mode 1
-                deltaProtons,
-                deltaNeutrons,
-                Probability
-            }
-            { // Individual nuclide decay mode 2
-                deltaProtons,
-                deltaNeutrons,
-                Probability
-            }
-            { // Individual nuclide decay mode 3
-                deltaProtons,
-                deltaNeutrons,
-                Probability
-            }
-        }
-    }
-    */
-    private static final double[][][] decayData = new double[numNuclides][3][3];
-    private static final double[] halfLivesSec = new double[numNuclides];
-    private static final HashMap<Integer, Integer> indexFromProtonsNeutrons = new HashMap<>();
-    private static final HashMap<Integer, int[]> protonsNeutronsFromIndex = new HashMap<>();
-
-    public static void getDecayMatrix() {
-        // Temp array to make changing the decay values easy, once it's converted into a matrix that will be much harder.
-        double[][] decayMatrixArray = new double[numNuclides][numNuclides];
-        double[] decayConstants = new double[numNuclides];
-        double ln2 = Math.log(2);
-        for(int i = 0; i < decayConstants.length; i++) {
-            decayConstants[i] = ln2 / halfLivesSec[i]; // Get decay constants based on the half life λ = ln(2) / T½
-        }
-        List<String> lines = new ArrayList<>();
-        for(int i = 0; i < decayData.length; i++) {
-
-            Arrays.fill(decayMatrixArray[i], 0);
-            decayMatrixArray[i][i] = -1;
-            for(int j = 0; j < 3; j++) {
-                if(decayData[i][j][2] == 0) continue;
-
-                int[] decayPN = protonsNeutronsFromIndex.get(i).clone();
-                decayPN[0] += (int) decayData[i][j][0];
-                decayPN[1] += (int) decayData[i][j][1];
-                int hashedDecayPn = Arrays.hashCode(decayPN);
-                if(!indexFromProtonsNeutrons.containsKey(hashedDecayPn)) {
-                    //System.out.println("Failed: " + (i+1) + " Decay Path " + (j+1));
-                    continue;
+    public static NuclideList processDecayDataCSVFile(String fileLoc) throws IOException {
+        int numNuclides = 3386; //3386
+        /*
+        DecayData Structure:
+        { // Holds all nuclides
+            { // Holds 3 individual nuclide decay modes for each nuclide
+                { // Individual nuclide decay mode 1
+                    deltaProtons,
+                    deltaNeutrons,
+                    Probability
                 }
-                //System.out.println("Successful: " + (i+1) + " Decay Path " + (j+1));
-                int afterDecayIndex = indexFromProtonsNeutrons.get(hashedDecayPn);
-                decayMatrixArray[afterDecayIndex][i] = (double) Math.round(decayData[i][j][2] * 100) /100;
-                //System.out.println("Writing " + decayData[i][j][2] + " to i:" + afterDecayIndex + " j" + i);
-                //int[] testDecayPN = protonsNeutronsFromIndex.get(i).clone();
-                //System.out.println("Index: " + i + " Before: P" + testDecayPN[0] + ", N" + testDecayPN[1] + " Expected Change: P" + (int) decayData[i][j][0] + ", N" + (int) decayData[i][j][1] + " => After: P" + decayPN[0] + ", N" + decayPN[1] + " After Index: " + afterDecayIndex);
-            }
-
-
-        }
-        try {
-            StringBuilder line = new StringBuilder();
-            for (int i = 0; i < decayMatrixArray.length; i++) {
-                //System.out.println(Arrays.toString(decayMatrixArray[i]));
-                for (int j = 0; j < decayMatrixArray[i].length; j++) {
-                    line.append(decayMatrixArray[i][j]).append(",");
+                { // Individual nuclide decay mode 2
+                    deltaProtons,
+                    deltaNeutrons,
+                    Probability
                 }
-                lines.add(line.toString());
+                { // Individual nuclide decay mode 3
+                    deltaProtons,
+                    deltaNeutrons,
+                    Probability
+                }
             }
-            writeToCSV("DecayMatrix.csv", lines);
-        }catch(IOException e) {
-            System.out.println("Failed to write to DecayMatrix.csv");
         }
-    }
+        */
+        double[][][] decayData = new double[numNuclides][3][3];
+        double[] halfLivesSec = new double[numNuclides];
+        int[][] protonsNeutrons = new int[numNuclides][2];
 
-    public static void writeToCSV(String csvName, List<String> dataLines) throws IOException {
-        File csvOutputFile = new File(csvName);
-        //csvOutputFile.getParentFile().mkdirs();
-        try (PrintWriter pw = new PrintWriter(csvOutputFile)) {
-            dataLines.stream().forEach(pw::println);
-        }
-    }
-
-
-    public static void processDecayDataCSVFile(String fileLoc) throws IOException {
         InputStream inputStream = DataProcessor.class.getClassLoader().getResourceAsStream(fileLoc);
         if (inputStream == null) {
             throw new FileNotFoundException("File not found in resources");
@@ -100,13 +41,8 @@ public class DataProcessor {
         String line;
         while ((line = csvReader.readLine()) != null) {
             String[] rowData = line.split(",", -1);
-            halfLivesSec[lineNum] = rowData[2].isEmpty() ? 100000000000000000d : Double.parseDouble(rowData[2]);
-
-            int protons = Integer.parseInt(rowData[0]);
-            int neutrons = Integer.parseInt(rowData[1]);
-            indexFromProtonsNeutrons.put(Arrays.hashCode((new int[]{protons, neutrons})), lineNum);
-            protonsNeutronsFromIndex.put(lineNum, new int[] {protons, neutrons});
-
+            halfLivesSec[lineNum] = rowData[2].isEmpty() ? 1e30 : Double.parseDouble(rowData[2]);
+            protonsNeutrons[lineNum] = new int[] {Integer.parseInt(rowData[0]), Integer.parseInt(rowData[1])};
             for (int i = 0; i < 3; i++) {
                 String decayType = rowData[3 + (i * 2)];
                 // No probability for decayData yet, we will add that next.
@@ -146,25 +82,12 @@ public class DataProcessor {
                 }
             }
             if(allZero) // If there are no decay pathways set the half-life very high.
-                halfLivesSec[lineNum] = 100000000000000000d;
+                halfLivesSec[lineNum] = 1e30;
 
             lineNum++;
         }
-        //printNuclides();
-    }
 
-    private static void printNuclides() {
-        for (int i = 0; i < DataProcessor.halfLivesSec.length; i++) {
-            StringBuilder nuclideOutput = new StringBuilder();
-            nuclideOutput.append("#").append(i + 1).append("__________________\nHalf-Life: ").append(DataProcessor.halfLivesSec[i]).append(" Seconds");
-            for (int j = 0; j < 3; j++) {
-                nuclideOutput.append("\nDecay Path ").append(j + 1).append(":\n");
-                nuclideOutput.append("ΔP: ").append(DataProcessor.decayData[i][j][0]);
-                nuclideOutput.append(", ΔN: ").append(DataProcessor.decayData[i][j][1]);
-                nuclideOutput.append(", %: ").append(DataProcessor.decayData[i][j][2] * 100);
-            }
-            System.out.println(nuclideOutput);
-        }
+        return new NuclideList(decayData, halfLivesSec, protonsNeutrons);
     }
 
     private static double[] parseDecayValue(String decayType) {
