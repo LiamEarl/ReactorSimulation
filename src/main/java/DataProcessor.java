@@ -3,8 +3,48 @@ import java.util.*;
 import org.ejml.simple.SimpleMatrix;
 
 public class DataProcessor {
-    public static NuclideList processDecayDataCSVFile(String fileLoc) throws IOException {
-        int numNuclides = 3386; //3386
+    private static int numNuclides = 3386; //3386
+
+    public static double[][] processFissionDataTXT(String fissionDataFileLoc) throws IOException {
+
+        /*
+            fissionData = {
+                {Protons, Neutrons, Amount}
+                {Protons, Neutrons, Amount}
+                {Protons, Neutrons, Amount}
+                ...
+            }
+         */
+        double[][] fissionData = new double[3577][3]; // 3577 is the # of nuclides in the fission data files
+
+        InputStream inputStream = DataProcessor.class.getClassLoader().getResourceAsStream(fissionDataFileLoc);
+        if (inputStream == null) {
+            throw new FileNotFoundException("File not found in resources");
+        }
+        double sum = 0;
+        int lineNum = 0;
+        Scanner txtReader = new Scanner(new InputStreamReader(inputStream));
+        while (txtReader.hasNextLine()) {
+            String line = txtReader.nextLine();
+            line = line.substring(2);
+            line = line.replace("  ", ",");
+            line = line.replace("   ", ",");
+            //System.out.println(line);
+            String[] lineData = line.split(",");
+            if(lineData.length != 3) continue;
+            if(lineData[0].isEmpty() || lineData[1].isEmpty() || lineData[2].isEmpty()) continue;
+            fissionData[lineNum][0] = Double.parseDouble(lineData[0]);
+            fissionData[lineNum][1] = Double.parseDouble(lineData[1]);
+            double amount = Double.parseDouble(lineData[2]);
+            fissionData[lineNum][2] = amount > 1e-29 ? amount : 0;
+            sum += fissionData[lineNum][2];
+            lineNum++;
+        }
+        //System.out.println("SUM: " + sum);
+        return fissionData;
+    }
+
+    public static NuclideList nuclideDataToNuclideList(String decayDataLoc, String u235FileLoc, String u238FileLoc) throws IOException {
         /*
         DecayData Structure:
         { // Holds all nuclides
@@ -27,11 +67,12 @@ public class DataProcessor {
             }
         }
         */
+        String[] names = new String[numNuclides];
         double[][][] decayData = new double[numNuclides][3][3];
         double[] halfLivesSec = new double[numNuclides];
         int[][] protonsNeutrons = new int[numNuclides][2];
 
-        InputStream inputStream = DataProcessor.class.getClassLoader().getResourceAsStream(fileLoc);
+        InputStream inputStream = DataProcessor.class.getClassLoader().getResourceAsStream(decayDataLoc);
         if (inputStream == null) {
             throw new FileNotFoundException("File not found in resources");
         }
@@ -43,6 +84,9 @@ public class DataProcessor {
             String[] rowData = line.split(",", -1);
             halfLivesSec[lineNum] = rowData[2].isEmpty() ? 1e30 : Double.parseDouble(rowData[2]);
             protonsNeutrons[lineNum] = new int[] {Integer.parseInt(rowData[0]), Integer.parseInt(rowData[1])};
+
+            names[lineNum] = rowData[9].isEmpty() ? "Unknown" : rowData[9];
+
             for (int i = 0; i < 3; i++) {
                 String decayType = rowData[3 + (i * 2)];
                 // No probability for decayData yet, we will add that next.
@@ -54,13 +98,13 @@ public class DataProcessor {
             }
 
             double[] decayProbabilities = new double[]{
-                rowData[4].isEmpty() ? 0f : Double.parseDouble(rowData[4]) / 100,
-                rowData[6].isEmpty() ? 0f : Double.parseDouble(rowData[6]) / 100,
-                rowData[8].isEmpty() ? 0f : Double.parseDouble(rowData[8]) / 100
+                rowData[4].isEmpty() ? 0f : (Double.parseDouble(rowData[4]) > 0.5 ? Double.parseDouble(rowData[4]) / 100 : 0),
+                rowData[6].isEmpty() ? 0f : (Double.parseDouble(rowData[6]) > 0.5 ? Double.parseDouble(rowData[6]) / 100 : 0),
+                rowData[8].isEmpty() ? 0f : (Double.parseDouble(rowData[8]) > 0.5 ? Double.parseDouble(rowData[8]) / 100 : 0)
             };
 
             /*
-                If the dataset has a cumulative probability less than or greater than 100, we need to fix that.
+                If the data point has a cumulative probability less than or greater than 100, we need to fix that.
                 I treat the probabilities like a linear equation, where each probability is multiplied by a scale factor.
                 That scale factor = 1 / (prob1 + prob2 + prob3)
                 Initial faulty probability example: prob1 = 1, prob2 = 1, prob3 = .26 Note: prob. should add up to 1.
@@ -87,7 +131,10 @@ public class DataProcessor {
             lineNum++;
         }
 
-        return new NuclideList(decayData, halfLivesSec, protonsNeutrons);
+        double[][] u235FissionData = processFissionDataTXT(u235FileLoc);
+        double[][] u238FissionData = processFissionDataTXT(u238FileLoc);
+
+        return new NuclideList(decayData, halfLivesSec, protonsNeutrons, u235FissionData, u238FissionData, names);
     }
 
     private static double[] parseDecayValue(String decayType) {
